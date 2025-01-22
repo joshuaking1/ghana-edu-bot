@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PharmaBot</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2A5C82;
+            --secondary-color: #5BA4E6;
+            --background-gradient: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: var(--background-gradient);
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 800px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: var(--primary-color);
+            color: white;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        #chat-box {
+            height: 400px;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f8f9fa;
+        }
+
+        .message {
+            margin: 10px 0;
+            padding: 12px 18px;
+            border-radius: 20px;
+            max-width: 80%;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .user-message {
+            background: var(--secondary-color);
+            color: white;
+            margin-left: auto;
+        }
+
+        .bot-message {
+            background: white;
+            border: 1px solid #dee2e6;
+            position: relative;
+        }
+
+        .typing-animation {
+            display: inline-block;
+            padding: 12px 18px;
+            background: white;
+            border-radius: 20px;
+            border: 1px solid #dee2e6;
+        }
+
+        .typing-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            margin-right: 4px;
+            background: #adb5bd;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .input-area {
+            display: flex;
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #dee2e6;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 25px;
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            background: var(--primary-color);
+            color: white;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+        }
+
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .pharma-content {
+            line-height: 1.6;
+        }
+
+        .pharma-content strong {
+            color: var(--primary-color);
+        }
+
+        .pharma-content ul {
+            padding-left: 20px;
+            margin: 10px 0;
+        }
+
+        .pharma-content li {
+            margin: 5px 0;
+        }
+        .attribution .heart {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PharmaBot 🩺</h1>
+            <p>AI Assistant for Pharmacy Students</p>
+        </div>
+        
+        <div id="chat-box"></div>
+        
+        <div class="input-area">
+            <input type="text" id="user-input" placeholder="Ask about pharmacology, medicinal chemistry, or pharmacy practice...">
+            <button onclick="askQuestion()">Send</button>
+        </div>
+    </div>
+    <footer>
+        <div class="attribution">
+        Made with <span class="heart">♥</span> by Joshua Segu
+    </div></footer>
+    <script>
+        async function askQuestion() {
+            const input = document.getElementById("user-input");
+            const question = input.value.trim();
+            if (!question) return;
+
+            // Add user message
+            const chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML += `
+                <div class="message user-message">
+                    ${question}
+                </div>
+            `;
+
+            // Add typing animation
+            const typingIndicator = document.createElement('div');
+            typingIndicator.className = 'message typing-animation';
+            typingIndicator.innerHTML = `
+                <div class="typing-dot"></div>
+                <div class="typing-dot" style="animation-delay: 0.2s"></div>
+                <div class="typing-dot" style="animation-delay: 0.4s"></div>
+            `;
+            chatBox.appendChild(typingIndicator);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                const response = await fetch("/ask", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ question: question })
+                });
+                
+                const data = await response.json();
+                typingIndicator.remove();
+                
+                // Format pharmacy content
+                const formattedResponse = formatPharmaContent(data.answer);
+                
+                chatBox.innerHTML += `
+                    <div class="message bot-message">
+                        <div class="pharma-content">${formattedResponse}</div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                typingIndicator.remove();
+                chatBox.innerHTML += `
+                    <div class="message bot-message">
+                        <div class="pharma-content">Error: ${error.message}</div>
+                    </div>
+                `;
+            }
+            
+            input.value = "";
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function formatPharmaContent(text) {
+            // Add formatting for medical terms
+            return text
+                .replace(/\b(mechanism of action|indications|contraindications|side effects)\b/gi, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>')
+                .replace(/- (.*?)(<br>|$)/g, '<li>$1</li>')
+                .replace(/<li>/g, '<ul><li>')
+                .replace(/<\/li>(?!<li>)/g, '</li></ul>');
+        }
+    </script>
+</body>
+</html>
