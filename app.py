@@ -10,6 +10,40 @@ app = Flask(__name__)
 # Initialize Twilio client
 twilio_client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
 
+def split_message(text, is_whatsapp=False):
+    """Split messages into Twilio-compatible chunks"""
+    max_length = 4096 if is_whatsapp else 1600
+    chunks = []
+    current_chunk = ""
+    
+    # Split at paragraph breaks first
+    paragraphs = text.split('\n\n')
+    for para in paragraphs:
+        if len(current_chunk) + len(para) + 2 > max_length:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = para + "\n\n"
+        else:
+            current_chunk += para + "\n\n"
+    
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+    
+    # If still too long, split by sentences
+    if any(len(chunk) > max_length for chunk in chunks):
+        sentences = text.split('. ')
+        current_chunk = ""
+        for sentence in sentences:
+            if len(current_chunk) + len(sentence) + 2 > max_length:
+                chunks.append(current_chunk.strip() + ".")
+                current_chunk = sentence
+            else:
+                current_chunk += sentence + ". "
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+    
+    return chunks[:10]  # Max 10 messages to prevent spam
+
 def generate_response(user_input):
     """Generate pharmaceutical response using OpenRouter"""
     try:
@@ -38,7 +72,8 @@ def generate_response(user_input):
         - Monitoring parameters
         - Special population considerations
 
-        Use professional medical terminology but explain concepts clearly for pharmacy students."""
+        Use professional medical terminology but explain concepts clearly for pharmacy students.
+        Structure response with short paragraphs (2-3 sentences each)."""
 
         # Add query type specific instructions
         if query_type == "moa":
@@ -84,19 +119,41 @@ def ask():
 # WhatsApp/SMS Webhook
 @app.route("/sms", methods=["POST"])
 def sms():
-    user_input = request.form.get("Body", "").strip()
-    from_number = request.form.get("From", "")
-    
-    response = generate_response(user_input)
-    
-    # Send reply via WhatsApp/SMS
-    twilio_client.messages.create(
-        body=response,
-        from_=os.getenv("TWILIO_PHONE"),
-        to=from_number
-    )
-    
-    return "", 200
+    try:
+        user_input = request.form.get("Body", "").strip()
+        from_number = request.form.get("From", "")
+        
+        if not user_input:
+            return "", 200
+            
+        # Handle WhatsApp sandbox join command
+        if user_input.lower() == "join":
+            return "", 200
+        
+        response = generate_response(user_input)
+        is_whatsapp = "whatsapp" in from_number.lower()
+        
+        # Split response into chunks
+        messages = split_message(response, is_whatsapp)
+        
+        # Send multiple messages
+        for i, msg in enumerate(messages):
+            # Add message counter for multi-part responses
+            if len(messages) > 1:
+                msg = f"(Part {i+1}/{len(messages)})\n{msg}"
+                
+            twilio_client.messages.create(
+                body=msg,
+                from_=os.getenv("TWILIO_PHONE"),
+                to=from_number,
+                channel="whatsapp" if is_whatsapp else "sms"
+            )
+        
+        return "", 200
+        
+    except Exception as e:
+        app.logger.error(f"SMS Error: {str(e)}")
+        return "", 500
 
 if __name__ == "__main__":
     app.run(port=5000)
