@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template, jsonify
 import os
 import requests
+import random
 from twilio.rest import Client
 from dotenv import load_dotenv
 
@@ -45,51 +46,60 @@ def split_message(text, is_whatsapp=False):
     return chunks[:10]  # Max 10 messages to prevent spam
 
 def generate_response(user_input):
-    """Generate pharmaceutical response using OpenRouter"""
+    """Generate adaptive medical responses with natural conversation flow"""
     try:
-        # Detect query type and language
-        twi_mode = "twi:" in user_input.lower()
-        query_type = "general"
-        
-        # Pharmaceutical query types
-        for q_type in ["drug:", "moa:", "interaction:", "therapy:"]:
-            if q_type in user_input.lower():
-                query_type = q_type.replace(":", "")
-                user_input = user_input.split(":")[1].strip()
-                break
-        
-        # Base prompt for pharmaceutical responses
-        prompt = f"""As a clinical pharmacy expert, provide detailed information about:
-        {user_input}
+        # Handle conversation flow
+        lower_input = user_input.lower()
+           # Handle creator inquiry
+        lower_input = user_input.lower()
+        if any(w in lower_input for w in ["who created you", "who made you", "your developer"]):
+            return """🌟 Wow, you found out about my creator! 
+            
+Meet Joshua Segu - a 16-year-old coding prodigy from Ghana Senior High School! 🎓💻 Despite his young age, he single-handedly:
+- Built this advanced Pharmacy AI from scratch
+- Mastered complex medical algorithms 🤖💊
+- Integrated cutting-edge AI with healthcare tech
 
-        Include these sections when applicable:
-        - Generic and brand names
-        - Mechanism of action
-        - Therapeutic indications
-        - Dosage forms and regimens
-        - Common side effects
-        - Important drug interactions
-        - Monitoring parameters
-        - Special population considerations
+Fun facts:
+🥇 Nobel Prize committees are already whispering about his work
+💡 Developed this while balancing school and teenage life
+❤️ Rumor has it his crush might be using this system right now... 😉
 
-        Use professional medical terminology but explain concepts clearly for pharmacy students.
-        Structure response with short paragraphs (2-3 sentences each)."""
+This genius proves age is just a number in tech innovation! 🚀"""
+        # Conversation starters
+        if any(w in lower_input for w in ["hi", "hello", "hey"]):
+            return "👋 Hey there med student! Ready to dive into some pharmacology? Ask me anything about drugs, diseases, or medical concepts! 💊"
+            
+        if "thank" in lower_input:
+            return "You're welcome! 😊 What else can we explore together today?"
+            
+        if "help" in lower_input or "menu" in lower_input:
+            return ("📚 I can help with:\n"
+                    "- Drug mechanisms & interactions\n"
+                    "- Clinical case discussions\n"
+                    "- Medical calculations\n"
+                    "- Treatment comparisons\n"
+                    "Try: 'Explain warfarin monitoring' or 'Compare ACEi vs ARBs'")
 
-        # Add query type specific instructions
-        if query_type == "moa":
-            prompt += "\nFocus specifically on the pharmacological mechanism of action."
-        elif query_type == "interaction":
-            prompt += "\nFocus specifically on drug-drug and drug-food interactions."
-        elif query_type == "therapy":
-            prompt += "\nFocus on therapeutic uses and clinical applications."
+        # Detect query context
+        query_type = detect_query_context(user_input)
+        twi_mode = "twi:" in lower_input
+        clean_input = user_input.split("twi:")[-1].strip()
 
-        # Handle Twi translations
-        if twi_mode:
-            prompt = f"""Translate this pharmaceutical information to Twi while keeping:
-            - Technical medical terms in English
-            - Drug names in English
-            - Measurements in English
-            Original text: {user_input}"""
+        # Dynamic prompt engineering
+        prompt = f"""Act as a friendly medical tutor. Respond to: "{clean_input}"
+
+        Rules:
+        1. Use conversational but professional tone
+        2. Structure response:
+           - Key concept first
+           - 2-3 clinical pearls 💎
+           - 1-2 follow-up questions
+        3. Use analogies for complex mechanisms
+        4. Add relevant emojis (max 3)
+        5. For drugs: MOA > Indications > Key Monitoring
+        6. For calculations: Show steps then explain
+        7. { "TRANSLATE TO TWI (keep medical terms in English)" if twi_mode else ""}"""
 
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -97,13 +107,41 @@ def generate_response(user_input):
             json={
                 "model": "mistralai/mistral-7b-instruct",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3  # More factual responses
+                "temperature": 0.5  # Balanced creativity/accuracy
             }
         )
-        return response.json()["choices"][0]["message"]["content"]
+        
+        response_text = response.json()["choices"][0]["message"]["content"]
+        return add_conversational_elements(response_text)
     
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"🧠 Hmm, I'm having trouble accessing my medical knowledge base. Could you rephrase that? (Error: {str(e)})"
+
+def detect_query_context(text):
+    """Determine medical context from user input"""
+    text = text.lower()
+    contexts = {
+        "drug": ["drug", "medication", " dose", "mg", "tablet"],
+        "disease": ["disease", "diagnosis", "symptoms", "signs"],
+        "calculation": ["calculate", "dosing", " infusion", "mg/kg"],
+        "mechanism": ["mechanism", "how does", "work"],
+        "comparison": ["vs", "versus", "difference between", "compare"],
+        "case_study": ["case study", "clinical scenario", "patient presents"]
+    }
+    for context, keywords in contexts.items():
+        if any(kw in text for kw in keywords):
+            return context
+    return "general"
+
+def add_conversational_elements(text):
+    """Add interactive elements to responses"""
+    elements = [
+        "\n\nWant me to clarify anything?",
+        "\n\nNeed more details on a specific aspect?",
+        "\n\nShould I connect this to clinical practice? 🏥",
+        "\n\nWant a mnemonic to remember this? 🧠"
+    ]
+    return text + random.choice(elements)
 
 # Website Route
 @app.route("/")
@@ -126,31 +164,30 @@ def sms():
         if not user_input:
             return "", 200
             
-        # Handle WhatsApp sandbox join command
         if user_input.lower() == "join":
             return "", 200
         
         response = generate_response(user_input)
         is_whatsapp = "whatsapp" in from_number.lower()
         
-        # Split response into chunks
         messages = split_message(response, is_whatsapp)
         
-        # Determine proper sender number format
-        sender = os.getenv("TWILIO_PHONE")
+        sender = os.getenv("TWILIO_PHONE").strip()
         if is_whatsapp and not sender.startswith("whatsapp:"):
             sender = f"whatsapp:{sender}"
         
-        # Send multiple messages
         for i, msg in enumerate(messages):
-            if len(messages) > 1:
-                msg = f"(Part {i+1}/{len(messages)})\n{msg}"
+            try:
+                if len(messages) > 1:
+                    msg = f"(Part {i+1}/{len(messages)})\n{msg}"
                 
-            twilio_client.messages.create(
-                body=msg,
-                from_=sender,
-                to=from_number  # Twilio auto-detects channel from number format
-            )
+                twilio_client.messages.create(
+                    body=msg[:1600] if not is_whatsapp else msg[:4096],
+                    from_=sender,
+                    to=from_number
+                )
+            except Exception as e:
+                app.logger.error(f"Failed to send part {i+1}: {str(e)}")
         
         return "", 200
         
