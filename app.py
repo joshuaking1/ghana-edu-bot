@@ -136,17 +136,20 @@ def sms():
         # Split response into chunks
         messages = split_message(response, is_whatsapp)
         
+        # Determine proper sender number format
+        sender = os.getenv("TWILIO_PHONE")
+        if is_whatsapp and not sender.startswith("whatsapp:"):
+            sender = f"whatsapp:{sender}"
+        
         # Send multiple messages
         for i, msg in enumerate(messages):
-            # Add message counter for multi-part responses
             if len(messages) > 1:
                 msg = f"(Part {i+1}/{len(messages)})\n{msg}"
                 
             twilio_client.messages.create(
                 body=msg,
-                from_=os.getenv("TWILIO_PHONE"),
-                to=from_number,
-                channel="whatsapp" if is_whatsapp else "sms"
+                from_=sender,
+                to=from_number  # Twilio auto-detects channel from number format
             )
         
         return "", 200
